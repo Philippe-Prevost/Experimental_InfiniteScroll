@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: black;
+            touch-action: none;
+            font-family: sans-serif;
+        }
+
+        video {
+            position: absolute;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            top: 0;
+            left: 0;
+            background: black;
+            will-change: transform;
+        }
+
+        #label {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 6px 10px;
+            z-index: 100;
+            border-radius: 8px;
+        }
+
+        #debug {
+
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+
+            color: white;
+            background: rgba(0, 0, 0, 0.6);
+
+            padding: 10px;
+
+            z-index: 100;
+
+            font-family: monospace;
+            font-size: 12px;
+
+            border-radius: 8px;
+
+            line-height: 1.5;
+        }
+
+        #controls {
+
+            position: fixed;
+            top: 60px;
+            left: 10px;
+
+            z-index: 200;
+
+            color: white;
+
+            background: rgba(0, 0, 0, 0.7);
+
+            padding: 12px;
+
+            border-radius: 10px;
+
+            width: 220px;
+
+            backdrop-filter: blur(10px);
+        }
+
+        #controls label {
+            display: block;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+
+        #controls input {
+            width: 100%;
+        }
+
+        #motionButton {
+
+            position: fixed;
+
+            top: 320px;
+            left: 10px;
+
+            z-index: 300;
+
+            padding: 10px 14px;
+
+            border: none;
+            border-radius: 8px;
+
+            background: white;
+            color: black;
+
+            font-weight: bold;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <!-- ----------------------------- -->
+    <!-- LABEL -->
+    <!-- ----------------------------- -->
+
+    <div id="label">
+        Adaptive Feed
+    </div>
+
+    <!-- ----------------------------- -->
+    <!-- DEBUG -->
+    <!-- ----------------------------- -->
+
+    <div id="debug">
+        Starting...
+    </div>
+
+    <!-- ----------------------------- -->
+    <!-- LIVE CONTROLS -->
+    <!-- ----------------------------- -->
+
+    <div id="controls">
+
+        <label>
+            Base Delay
+            <input type="range" id="delaySlider" min="0" max="2000" value="400">
+        </label>
+
+        <label>
+            Swipe Threshold
+            <input type="range" id="thresholdSlider" min="50" max="400" value="120">
+        </label>
+
+        <label>
+            Walking Delay
+            <input type="range" id="walkingSlider" min="0" max="2000" value="400">
+        </label>
+
+        <label>
+            Transition Delay
+            <input type="range" id="transitionSlider" min="0" max="3000" value="900">
+        </label>
+
+    </div>
+
+    <!-- ----------------------------- -->
+    <!-- IOS MOTION BUTTON -->
+    <!-- ----------------------------- -->
+
+    <button id="motionButton">
+        Enable Motion
+    </button>
+
+    <!-- ----------------------------- -->
+    <!-- VIDEOS -->
+    <!-- ----------------------------- -->
+
+    <video id="current" autoplay muted loop playsinline></video>
+
+    <video id="next" autoplay muted loop playsinline></video>
+
+    <script>
+
+        // ---------------------------------
+        // VIDEOS
+        // ---------------------------------
+
+        const videos = [
+
+            "videos/vid1.mp4",
+            "videos/vid2.mp4",
+            "videos/vid3.mp4",
+            "videos/vid4.mp4",
+            "videos/vid5.mp4",
+            "videos/vid6.mp4",
+            "videos/vid7.mp4",
+            "videos/vid8.mp4"
+
+        ];
+
+        // ---------------------------------
+        // ELEMENTS
+        // ---------------------------------
+
+        let current =
+            document.getElementById("current");
+
+        let next =
+            document.getElementById("next");
+
+        const debug =
+            document.getElementById("debug");
+
+        // ---------------------------------
+        // VIDEO SETTINGS
+        // ---------------------------------
+
+        [current, next].forEach(v => {
+
+            v.muted = true;
+            v.autoplay = true;
+            v.loop = true;
+            v.playsInline = true;
+
+            v.setAttribute("muted", "");
+            v.setAttribute("autoplay", "");
+            v.setAttribute("playsinline", "");
+
+        });
+
+        // ---------------------------------
+        // SESSION
+        // ---------------------------------
+
+        let currentIndex = 0;
+
+        let swipeCount = 0;
+
+        let lastSwipe = Date.now();
+
+        const sessionStart = Date.now();
+
+        // ---------------------------------
+        // LIVE PARAMETERS
+        // ---------------------------------
+
+        let baseDelay = 400;
+
+        let swipeThreshold = 120;
+
+        let walkingDelay = 400;
+
+        let transitionDelay = 900;
+
+        // ---------------------------------
+        // MOTION VARIABLES
+        // ---------------------------------
+
+        let motionLevel = 0;
+
+        let movementState = "still";
+
+        // ---------------------------------
+        // SLIDERS
+        // ---------------------------------
+
+        document
+            .getElementById("delaySlider")
+            .oninput = e => {
+
+                baseDelay =
+                    parseInt(e.target.value);
+            };
+
+        document
+            .getElementById("thresholdSlider")
+            .oninput = e => {
+
+                swipeThreshold =
+                    parseInt(e.target.value);
+            };
+
+        document
+            .getElementById("walkingSlider")
+            .oninput = e => {
+
+                walkingDelay =
+                    parseInt(e.target.value);
+            };
+
+        document
+            .getElementById("transitionSlider")
+            .oninput = e => {
+
+                transitionDelay =
+                    parseInt(e.target.value);
+            };
+
+        // ---------------------------------
+        // MOTION SENSING
+        // ---------------------------------
+
+        function startMotion() {
+
+            window.addEventListener(
+                "devicemotion",
+                e => {
+
+                    const acc =
+                        e.accelerationIncludingGravity;
+
+                    if (!acc) return;
+
+                    motionLevel =
+
+                        Math.abs(acc.x || 0) +
+                        Math.abs(acc.y || 0) +
+                        Math.abs(acc.z || 0);
+
+                    // STATES
+
+                    if (motionLevel < 18) {
+
+                        movementState = "still";
+
+                    }
+
+                    else if (motionLevel < 35) {
+
+                        movementState = "walking";
+
+                    }
+
+                    else {
+
+                        movementState = "transition";
+
+                    }
+
+                }
+            );
+
+        }
+
+        // ---------------------------------
+        // IOS PERMISSION
+        // ---------------------------------
+
+        document
+            .getElementById("motionButton")
+            .addEventListener("click", async () => {
+
+                if (
+                    typeof DeviceMotionEvent !== "undefined" &&
+                    typeof DeviceMotionEvent.requestPermission === "function"
+                ) {
+
+                    try {
+
+                        const permission =
+                            await DeviceMotionEvent.requestPermission();
+
+                        if (permission === "granted") {
+
+                            startMotion();
+
+                            alert("Motion enabled");
+
+                        }
+
+                    }
+
+                    catch (err) {
+
+                        console.log(err);
+
+                    }
+
+                }
+
+                else {
+
+                    startMotion();
+
+                }
+
+            });
+
+        // ---------------------------------
+        // PRELOAD
+        // ---------------------------------
+
+        function preload(index) {
+
+            const file =
+                videos[index % videos.length];
+
+            next.preload = "auto";
+
+            next.src = file;
+
+            next.load();
+
+            next.play();
+
+        }
+
+        // ---------------------------------
+        // INITIAL VIDEO
+        // ---------------------------------
+
+        current.src = videos[0];
+
+        current.play();
+
+        preload(1);
+
+        current.style.transform =
+            "translateY(0vh)";
+
+        next.style.transform =
+            "translateY(100vh)";
+
+        // ---------------------------------
+        // DEBUG
+        // ---------------------------------
+
+        function updateDebug(interval = 0) {
+
+            const sessionTime =
+                Math.floor(
+                    (Date.now() - sessionStart) / 1000
+                );
+
+            debug.innerHTML = `
+
+                Motion: ${motionLevel.toFixed(1)}<br>
+                State: ${movementState}<br>
+
+                Swipes: ${swipeCount}<br>
+                Interval: ${interval}ms<br>
+
+                Delay: ${baseDelay}<br>
+                Threshold: ${swipeThreshold}<br>
+
+                Walking+: ${walkingDelay}<br>
+                Transition+: ${transitionDelay}<br>
+
+                Session: ${sessionTime}s
+
+            `;
+
+        }
+
+        setInterval(updateDebug, 100);
+
+        // ---------------------------------
+        // DRAGGING
+        // ---------------------------------
+
+        let dragging = false;
+
+        let startX = 0;
+        let startY = 0;
+
+        let currentY = 0;
+
+        // ---------------------------------
+        // TOUCH START
+        // ---------------------------------
+
+        document.addEventListener(
+            "touchstart",
+            e => {
+
+                dragging = true;
+
+                startX =
+                    e.touches[0].clientX;
+
+                startY =
+                    e.touches[0].clientY;
+
+                currentY = startY;
+
+                current.style.transition =
+                    "none";
+
+                next.style.transition =
+                    "none";
+
+            }
+        );
+
+        // ---------------------------------
+        // TOUCH MOVE
+        // ---------------------------------
+
+        document.addEventListener(
+            "touchmove",
+            e => {
+
+                if (!dragging) return;
+
+                currentY =
+                    e.touches[0].clientY;
+
+                let deltaY =
+                    currentY - startY;
+
+                if (deltaY < 0) {
+
+                    current.style.transform =
+                        `translateY(${deltaY}px)`;
+
+                    next.style.transform =
+                        `translateY(${window.innerHeight + deltaY}px)`;
+
+                }
+
+            }
+        );
+
+        // ---------------------------------
+        // TOUCH END
+        // ---------------------------------
+
+        document.addEventListener(
+            "touchend",
+            e => {
+
+                dragging = false;
+
+                let dy =
+                    e.changedTouches[0].clientY - startY;
+
+                current.style.transition =
+                    "transform 0.35s ease";
+
+                next.style.transition =
+                    "transform 0.35s ease";
+
+                // -----------------------------
+                // COMPLETE SWIPE
+                // -----------------------------
+
+                if (dy < -swipeThreshold) {
+
+                    const now = Date.now();
+
+                    const interval =
+                        now - lastSwipe;
+
+                    lastSwipe = now;
+
+                    swipeCount++;
+
+                    // -----------------------------
+                    // DELAY SYSTEM
+                    // -----------------------------
+
+                    let extraDelay =
+                        baseDelay;
+
+                    if (
+                        movementState === "walking"
+                    ) {
+
+                        extraDelay +=
+                            walkingDelay;
+
+                    }
+
+                    if (
+                        movementState === "transition"
+                    ) {
+
+                        extraDelay +=
+                            transitionDelay;
+
+                    }
+
+                    // fast swiping
+
+                    if (interval < 1200) {
+
+                        extraDelay += 500;
+
+                    }
+
+                    // -----------------------------
+                    // ANIMATE
+                    // -----------------------------
+
+                    current.style.transform =
+                        "translateY(-100vh)";
+
+                    next.style.transform =
+                        "translateY(0vh)";
+
+                    // -----------------------------
+                    // SWAP
+                    // -----------------------------
+
+                    setTimeout(() => {
+
+                        let temp = current;
+
+                        current = next;
+
+                        next = temp;
+
+                        current.style.transition =
+                            "none";
+
+                        next.style.transition =
+                            "none";
+
+                        current.style.transform =
+                            "translateY(0vh)";
+
+                        next.style.transform =
+                            "translateY(100vh)";
+
+                        currentIndex =
+                            (currentIndex + 1)
+                            % videos.length;
+
+                        preload(currentIndex + 1);
+
+                        current.play();
+
+                    }, 350 + extraDelay);
+
+                }
+
+                // -----------------------------
+                // SNAP BACK
+                // -----------------------------
+
+                else {
+
+                    current.style.transform =
+                        "translateY(0vh)";
+
+                    next.style.transform =
+                        "translateY(100vh)";
+
+                }
+
+            }
+        );
+
+    </script>
+
+</body>
+
+</html>
